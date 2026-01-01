@@ -7,7 +7,7 @@ app.use(express.json());        // ✅ THEN use middleware
 const PORT = process.env.PORT || 3000;
 
 // ===== CONFIG =====
-const TRADINGVIEW_WEBHOOK_URL = process.env."https://script.google.com/macros/s/AKfycbzeoar5TzEkJPJz603zGLN91qS1W3A8W2KP1F9fV7C7v5MIHySefWvdUJn2NOMfVVFafg/exec";
+const TRADINGVIEW_WEBHOOK_URL = process.env.TRADINGVIEW_WEBHOOK_URL;
 
 // ===== HEALTH CHECK =====
 app.get("/", (req, res) => {
@@ -46,5 +46,3 @@ app.post("/tradingview", (req, res) => {
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
 });
-
-
