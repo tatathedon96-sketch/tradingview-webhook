@@ -26,10 +26,23 @@ app.post("/send", async (req, res) => {
 });
 
 // TradingView → Node (later)
-app.post("/tradingview", (req, res) => {
-  console.log("TradingView Alert:", req.body);
-  res.status(200).send("OK");
+app.post("/tradingview", async (req, res) => {
+  try {
+    const url = process.env.RESULTS_SHEET_WEBHOOK_URL;
+    if (!url) return res.status(500).json({ error: "RESULTS_SHEET_WEBHOOK_URL not set" });
+
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req.body),
+    });
+
+    res.json({ ok: r.ok, status: r.status });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
+
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
