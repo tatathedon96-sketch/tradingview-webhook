@@ -1,48 +1,37 @@
 const express = require("express");
-const axios = require("axios");
 
-const app = express();          // ✅ CREATE app FIRST
-app.use(express.json());        // ✅ THEN use middleware
+const app = express();
+app.use(express.json());
 
-const PORT = process.env.PORT || 3000;
-
-// ===== CONFIG =====
-const TRADINGVIEW_WEBHOOK_URL = process.env.TRADINGVIEW_WEBHOOK_URL;
-
-// ===== HEALTH CHECK =====
 app.get("/", (req, res) => {
-  res.send("Server is running");
+  res.status(200).send("Server is running");
 });
 
-// ===== RECEIVE FROM GOOGLE SHEETS =====
+// Sheets → Node
 app.post("/send", async (req, res) => {
-  const { tickers } = req.body;
+  try {
+    const url = process.env.TRADINGVIEW_WEBHOOK_URL;
+    if (!url) return res.status(500).json({ error: "TRADINGVIEW_WEBHOOK_URL not set" });
 
-  if (!Array.isArray(tickers)) {
-    return res.status(400).json({ error: "tickers must be an array" });
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req.body),
+    });
+
+    res.json({ ok: r.ok, status: r.status });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
-
-  const results = [];
-
-  for (const ticker of tickers) {
-    try {
-      await axios.post(TRADINGVIEW_WEBHOOK_URL, { ticker });
-      results.push({ ticker, status: "SENT" });
-    } catch (err) {
-      results.push({ ticker, status: "FAILED" });
-    }
-  }
-
-  res.json({ results });
 });
 
-// ===== RECEIVE FROM TRADINGVIEW =====
+// TradingView → Node (later)
 app.post("/tradingview", (req, res) => {
   console.log("TradingView Alert:", req.body);
-  res.send("OK");
+  res.status(200).send("OK");
 });
 
-// ===== START SERVER =====
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log("Server running on port", PORT);
 });
