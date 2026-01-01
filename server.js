@@ -1,41 +1,50 @@
 const express = require("express");
-const bodyParser = require("body-parser");
 const axios = require("axios");
 
-app.use(express.json());
+const app = express();          // ✅ CREATE app FIRST
+app.use(express.json());        // ✅ THEN use middleware
 
-const TRADINGVIEW_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzeoar5TzEkJPJz603zGLN91qS1W3A8W2KP1F9fV7C7v5MIHySefWvdUJn2NOMfVVFafg/exec"; // replace with your TradingView alert URL
+const PORT = process.env.PORT || 3000;
 
-// Receive tickers from Google Sheets
-app.post("/sendTickers", async (req, res) => {
-  const tickers = req.body.tickers;
-  if (!tickers || !Array.isArray(tickers)) {
-    return res.status(400).json({ error: "Tickers array required" });
+// ===== CONFIG =====
+const TRADINGVIEW_WEBHOOK_URL = process.env."https://script.google.com/macros/s/AKfycbzeoar5TzEkJPJz603zGLN91qS1W3A8W2KP1F9fV7C7v5MIHySefWvdUJn2NOMfVVFafg/exec";
+
+// ===== HEALTH CHECK =====
+app.get("/", (req, res) => {
+  res.send("Server is running");
+});
+
+// ===== RECEIVE FROM GOOGLE SHEETS =====
+app.post("/send", async (req, res) => {
+  const { tickers } = req.body;
+
+  if (!Array.isArray(tickers)) {
+    return res.status(400).json({ error: "tickers must be an array" });
   }
 
-  for (const ticker of tickers) {
-    const payload = {
-      ticker: ticker,
-      timestamp: new Date().toISOString()
-    };
+  const results = [];
 
+  for (const ticker of tickers) {
     try {
-      await fetch(TRADINGVIEW_WEBHOOK_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      console.log(`Sent ${ticker} to TradingView`);
+      await axios.post(TRADINGVIEW_WEBHOOK_URL, { ticker });
+      results.push({ ticker, status: "SENT" });
     } catch (err) {
-      console.error(`Error sending ${ticker}:`, err);
+      results.push({ ticker, status: "FAILED" });
     }
   }
 
-  res.json({ status: "ok", sent: tickers.length });
+  res.json({ results });
 });
 
-// Health check
-app.get("/", (req, res) => res.send("Server is running"));
+// ===== RECEIVE FROM TRADINGVIEW =====
+app.post("/tradingview", (req, res) => {
+  console.log("TradingView Alert:", req.body);
+  res.send("OK");
+});
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// ===== START SERVER =====
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server running on port ${PORT}`);
+});
+
+
