@@ -90,7 +90,7 @@ app.post("/rank", async (req, res) => {
     rows.sort((a,b)=>{
       const ax = a.score ?? -Infinity;
       const bx = b.score ?? -Infinity;
-      return bx - ax;
+      return bx - ax; // highest first
     });
 
     // add rank
