@@ -153,7 +153,7 @@ app.post("/rank", async (req, res) => {
       if (!base) continue;
 
       try {
-        await sleep(100); // pace requests so we don't burst the rate limiter
+        await sleep(50); // pace requests so we don't burst the rate limiter
         const closes = await fetchDailyClosesUSD(base, limitCloses);
         const r = logReturns(closes).slice(-lookback);
 
