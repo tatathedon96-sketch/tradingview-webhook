@@ -57,48 +57,95 @@ function parseBaseSymbol(ticker) {
   return s;
 }
 
-/** ========== CRYPTOCOMPARE DAILY CLOSES (USD) ========== */
-// Daily candles only roll once a day, so a few-hours-old close is still valid.
-// Cache cuts API usage and lets a run survive transient rate-limit errors.
-const CLOSES_TTL_MS = 3 * 60 * 60 * 1000;
+/** ========== DAILY CLOSES (USDT ≈ USD) — KEYLESS EXCHANGE PUBLIC APIs ==========
+ * CryptoCompare's free tier dropped to 100 calls/month (a full run needs ~160),
+ * so daily closes now come from exchange public candle endpoints instead.
+ * No API keys, no monthly quotas — only per-IP rate limits we stay under.
+ * Fallback chain per symbol; the working source is remembered per base.
+ */
+const CLOSES_TTL_MS = 3 * 60 * 60 * 1000; // daily candles only roll once a day
 const closesCache = new Map(); // "BASE:limitCloses" -> { at, closes }
+const sourceMemo = new Map();  // "BASE" -> source name that worked last time
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-async function ccHistodayUSD(base, limitCloses) {
-  // CryptoCompare histoday: limit=30 returns 31 candles (today included)
-  const url =
-    `https://min-api.cryptocompare.com/data/v2/histoday` +
-    `?fsym=${encodeURIComponent(base)}` +
-    `&tsym=USD` +
-    `&limit=${limitCloses - 1}`; // because CC "limit" is number of intervals back
-
-  const headers = {};
-  if (process.env.CRYPTOCOMPARE_API_KEY) {
-    headers["authorization"] = `Apikey ${process.env.CRYPTOCOMPARE_API_KEY}`;
+async function getJSON(url) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 10000);
+  try {
+    const resp = await fetch(url, { signal: ctrl.signal });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return await resp.json();
+  } finally {
+    clearTimeout(timer);
   }
+}
 
-  const resp = await fetch(url, { headers });
-  const json = await resp.json().catch(() => ({}));
+// Each source resolves to closes in ascending time order, or throws.
+const SOURCES = {
+  async kucoin(base, limitCloses) {
+    const end = Math.floor(Date.now() / 1000);
+    const start = end - (limitCloses + 2) * 86400;
+    const j = await getJSON(
+      `https://api.kucoin.com/api/v1/market/candles?type=1day&symbol=${base}-USDT&startAt=${start}&endAt=${end}`
+    );
+    if (j.code !== "200000" || !Array.isArray(j.data)) throw new Error(`kucoin: ${j.msg || j.code}`);
+    return j.data.map(row => Number(row[2])).reverse(); // newest-first -> ascending, close at [2]
+  },
+  async okx(base, limitCloses) {
+    const j = await getJSON(
+      `https://www.okx.com/api/v5/market/candles?instId=${base}-USDT&bar=1Dutc&limit=${Math.min(limitCloses, 300)}`
+    );
+    if (j.code !== "0" || !Array.isArray(j.data)) throw new Error(`okx: ${j.msg || j.code}`);
+    return j.data.map(row => Number(row[4])).reverse(); // newest-first -> ascending, close at [4]
+  },
+  async binance(base, limitCloses) {
+    const j = await getJSON(
+      `https://api.binance.com/api/v3/klines?symbol=${base}USDT&interval=1d&limit=${Math.min(limitCloses, 1000)}`
+    );
+    if (!Array.isArray(j)) throw new Error(`binance: ${(j && j.msg) || "bad response"}`);
+    return j.map(row => Number(row[4])); // ascending, close at [4]
+  },
+  async gate(base, limitCloses) {
+    const j = await getJSON(
+      `https://api.gateio.ws/api/v4/spot/candlesticks?currency_pair=${base}_USDT&interval=1d&limit=${Math.min(limitCloses, 1000)}`
+    );
+    if (!Array.isArray(j)) throw new Error(`gate: ${(j && j.message) || "bad response"}`);
+    return j.map(row => Number(row[2])); // ascending, close at [2]
+  },
+  async mexc(base, limitCloses) {
+    const j = await getJSON(
+      `https://api.mexc.com/api/v3/klines?symbol=${base}USDT&interval=1d&limit=${Math.min(limitCloses, 1000)}`
+    );
+    if (!Array.isArray(j)) throw new Error(`mexc: ${(j && j.msg) || "bad response"}`);
+    return j.map(row => Number(row[4])); // ascending, close at [4]
+  },
+};
+const SOURCE_ORDER = ["kucoin", "okx", "binance", "gate", "mexc"];
 
-  if (!resp.ok) {
-    throw new Error(`CryptoCompare HTTP ${resp.status} for ${base}USD`);
+function validCloses(arr) {
+  const closes = (arr || []).filter(x => Number.isFinite(x) && x > 0);
+  return closes.length >= 20 ? closes : null;
+}
+
+async function fetchFromAnySource(base, limitCloses) {
+  const remembered = sourceMemo.get(base);
+  const order = remembered
+    ? [remembered, ...SOURCE_ORDER.filter(s => s !== remembered)]
+    : SOURCE_ORDER;
+
+  const errors = [];
+  for (const name of order) {
+    try {
+      const closes = validCloses(await SOURCES[name](base, limitCloses));
+      if (!closes) throw new Error(`${name}: not enough data`);
+      sourceMemo.set(base, name);
+      return closes.slice(-limitCloses);
+    } catch (e) {
+      errors.push(e.message);
+    }
   }
-  if (json.Response !== "Success") {
-    throw new Error(`CryptoCompare: ${json.Message || "Unknown error"} for ${base}USD`);
-  }
-
-  const arr = json?.Data?.Data;
-  if (!Array.isArray(arr) || arr.length < 20) {
-    throw new Error(`Not enough data for ${base}USD`);
-  }
-
-  const closes = arr
-    .map(d => Number(d.close))
-    .filter(x => Number.isFinite(x) && x > 0);
-
-  if (closes.length < 20) throw new Error(`Invalid closes for ${base}USD`);
-  return closes;
+  throw new Error(`No daily data for ${base}-USDT on any source (${errors.join("; ")})`);
 }
 
 async function fetchDailyClosesUSD(base, limitCloses, retries = 1) {
@@ -110,13 +157,13 @@ async function fetchDailyClosesUSD(base, limitCloses, retries = 1) {
   for (let attempt = 0; attempt <= retries; attempt++) {
     if (attempt > 0) await sleep(1500 * attempt);
     try {
-      const closes = await ccHistodayUSD(base, limitCloses);
+      const closes = await fetchFromAnySource(base, limitCloses);
       closesCache.set(key, { at: Date.now(), closes });
       return closes;
     } catch (e) {
       lastErr = e;
-      // Only rate limits are worth retrying; other errors won't self-heal
-      if (!/rate limit|429/i.test(e.message)) break;
+      // Only rate limits are worth retrying; unknown symbols won't self-heal
+      if (!/rate limit|429|too many/i.test(e.message)) break;
     }
   }
 
@@ -137,7 +184,7 @@ app.post("/rank", async (req, res) => {
     const lookback = Math.max(Number(lookbackDays) || 90, 20);
     const limitCloses = lookback + 1; // need +1 closes to create lookback returns
 
-    // Benchmarks in USD — the whole request dies without these, so retry harder
+    // Benchmarks — the whole request dies without these, so retry harder
     const [btcCloses, ethCloses] = await Promise.all([
       fetchDailyClosesUSD("BTC", limitCloses, 3),
       fetchDailyClosesUSD("ETH", limitCloses, 3),
@@ -147,42 +194,50 @@ app.post("/rank", async (req, res) => {
     const ethR = logReturns(ethCloses).slice(-lookback);
 
     const rows = [];
+    const queue = tickers.slice();
 
-    for (const t of tickers) {
-      const base = parseBaseSymbol(t);
-      if (!base) continue;
+    // Small worker pool: ~160 tickers sequentially would flirt with the
+    // Apps Script UrlFetch timeout; 4 workers keeps us well under it while
+    // staying inside every exchange's public per-IP rate limits.
+    async function worker() {
+      while (queue.length > 0) {
+        const t = queue.shift();
+        const base = parseBaseSymbol(t);
+        if (!base) continue;
 
-      try {
-        await sleep(50); // pace requests so we don't burst the rate limiter
-        const closes = await fetchDailyClosesUSD(base, limitCloses);
-        const r = logReturns(closes).slice(-lookback);
+        try {
+          await sleep(25); // stagger so requests don't burst
+          const closes = await fetchDailyClosesUSD(base, limitCloses);
+          const r = logReturns(closes).slice(-lookback);
 
-        const bBTC = beta(r, btcR);
-        const bETH = beta(r, ethR);
+          const bBTC = beta(r, btcR);
+          const bETH = beta(r, ethR);
 
-        // ✅ YOUR RANKING: highest average abs beta
-        const score = (bBTC == null || bETH == null)
-          ? null
-          : (Math.abs(bBTC) + Math.abs(bETH)) / 2;
+          // ✅ YOUR RANKING: highest average abs beta
+          const score = (bBTC == null || bETH == null)
+            ? null
+            : (Math.abs(bBTC) + Math.abs(bETH)) / 2;
 
-        rows.push({
-          ticker: String(t).trim().toUpperCase(),
-          base,
-          betaBTC: bBTC,
-          betaETH: bETH,
-          score
-        });
-      } catch (e) {
-        rows.push({
-          ticker: String(t).trim().toUpperCase(),
-          base,
-          betaBTC: null,
-          betaETH: null,
-          score: null,
-          error: e.message
-        });
+          rows.push({
+            ticker: String(t).trim().toUpperCase(),
+            base,
+            betaBTC: bBTC,
+            betaETH: bETH,
+            score
+          });
+        } catch (e) {
+          rows.push({
+            ticker: String(t).trim().toUpperCase(),
+            base,
+            betaBTC: null,
+            betaETH: null,
+            score: null,
+            error: e.message
+          });
+        }
       }
     }
+    await Promise.all(Array.from({ length: 4 }, worker));
 
     rows.sort((a, b) => (b.score ?? -Infinity) - (a.score ?? -Infinity));
     rows.forEach((r, i) => (r.rank = i + 1));
@@ -197,9 +252,5 @@ app.post("/rank", async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
   console.log("Server running on port", PORT);
-  console.log(
-    process.env.CRYPTOCOMPARE_API_KEY
-      ? "CRYPTOCOMPARE_API_KEY is set"
-      : "WARNING: CRYPTOCOMPARE_API_KEY not set — keyless calls are rate-limited/rejected by CryptoCompare"
-  );
+  console.log("Data sources: kucoin, okx, binance, gate, mexc (keyless public candle APIs)");
 });
