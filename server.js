@@ -58,7 +58,14 @@ function parseBaseSymbol(ticker) {
 }
 
 /** ========== CRYPTOCOMPARE DAILY CLOSES (USD) ========== */
-async function fetchDailyClosesUSD(base, limitCloses) {
+// Daily candles only roll once a day, so a few-hours-old close is still valid.
+// Cache cuts API usage and lets a run survive transient rate-limit errors.
+const CLOSES_TTL_MS = 3 * 60 * 60 * 1000;
+const closesCache = new Map(); // "BASE:limitCloses" -> { at, closes }
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function ccHistodayUSD(base, limitCloses) {
   // CryptoCompare histoday: limit=30 returns 31 candles (today included)
   const url =
     `https://min-api.cryptocompare.com/data/v2/histoday` +
@@ -94,6 +101,30 @@ async function fetchDailyClosesUSD(base, limitCloses) {
   return closes;
 }
 
+async function fetchDailyClosesUSD(base, limitCloses, retries = 1) {
+  const key = `${base}:${limitCloses}`;
+  const hit = closesCache.get(key);
+  if (hit && Date.now() - hit.at < CLOSES_TTL_MS) return hit.closes;
+
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    if (attempt > 0) await sleep(1500 * attempt);
+    try {
+      const closes = await ccHistodayUSD(base, limitCloses);
+      closesCache.set(key, { at: Date.now(), closes });
+      return closes;
+    } catch (e) {
+      lastErr = e;
+      // Only rate limits are worth retrying; other errors won't self-heal
+      if (!/rate limit|429/i.test(e.message)) break;
+    }
+  }
+
+  // Expired cache beats a dead response for daily data
+  if (hit) return hit.closes;
+  throw lastErr;
+}
+
 /** ========== MAIN RANK ENDPOINT ========== */
 app.post("/rank", async (req, res) => {
   try {
@@ -106,10 +137,10 @@ app.post("/rank", async (req, res) => {
     const lookback = Math.max(Number(lookbackDays) || 90, 20);
     const limitCloses = lookback + 1; // need +1 closes to create lookback returns
 
-    // Benchmarks in USD
+    // Benchmarks in USD — the whole request dies without these, so retry harder
     const [btcCloses, ethCloses] = await Promise.all([
-      fetchDailyClosesUSD("BTC", limitCloses),
-      fetchDailyClosesUSD("ETH", limitCloses),
+      fetchDailyClosesUSD("BTC", limitCloses, 3),
+      fetchDailyClosesUSD("ETH", limitCloses, 3),
     ]);
 
     const btcR = logReturns(btcCloses).slice(-lookback);
@@ -122,6 +153,7 @@ app.post("/rank", async (req, res) => {
       if (!base) continue;
 
       try {
+        await sleep(100); // pace requests so we don't burst the rate limiter
         const closes = await fetchDailyClosesUSD(base, limitCloses);
         const r = logReturns(closes).slice(-lookback);
 
@@ -163,4 +195,11 @@ app.post("/rank", async (req, res) => {
 
 /** ========== START SERVER ========== */
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, "0.0.0.0", () => console.log("Server running on port", PORT));
+app.listen(PORT, "0.0.0.0", () => {
+  console.log("Server running on port", PORT);
+  console.log(
+    process.env.CRYPTOCOMPARE_API_KEY
+      ? "CRYPTOCOMPARE_API_KEY is set"
+      : "WARNING: CRYPTOCOMPARE_API_KEY not set — keyless calls are rate-limited/rejected by CryptoCompare"
+  );
+});
