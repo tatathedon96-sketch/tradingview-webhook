@@ -248,6 +248,59 @@ app.post("/rank", async (req, res) => {
   }
 });
 
+/** ========== TPI SIGNALS ENDPOINT ==========
+ * Scores each token with the shared TPI indicator basket on BOTH USD and BTC.
+ * Returns +1/0/-1 per indicator plus the averaged score (range -1..+1) per side.
+ * Additive to /rank; uses the OHLC fetch in score_basket.js (not the closes chain).
+ */
+const { scoreToken, BASKET_NAMES } = require("./score_basket");
+
+app.post("/signals", async (req, res) => {
+  try {
+    const { tickers } = req.body || {};
+    if (!Array.isArray(tickers) || tickers.length === 0) {
+      return res.status(400).json({ error: "tickers must be a non-empty array" });
+    }
+
+    const bases = [...new Set(tickers.map(parseBaseSymbol).filter(Boolean))];
+    const rows = [];
+    const queue = bases.slice();
+
+    // Worker pool: 158 tokens x 2 instruments (USD+BTC) ~= 316 fetches.
+    async function worker() {
+      while (queue.length > 0) {
+        const base = queue.shift();
+        try {
+          const r = await scoreToken(base);
+          rows.push({
+            ticker: base,
+            usdScore: r.usd.error ? null : r.usd.score,
+            btcScore: r.btc.error ? null : r.btc.score,
+            usdSignals: r.usd.error ? null : r.usd.signals.map(s => s.sig),
+            btcSignals: r.btc.error ? null : r.btc.signals.map(s => s.sig),
+            error: r.usd.error || r.btc.error || undefined,
+          });
+        } catch (e) {
+          rows.push({ ticker: base, usdScore: null, btcScore: null, error: e.message });
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: 6 }, worker));
+
+    // Preserve input order
+    const order = new Map(bases.map((b, i) => [b, i]));
+    rows.sort((a, b) => (order.get(a.ticker) ?? 0) - (order.get(b.ticker) ?? 0));
+
+    res.json({
+      basket: BASKET_NAMES,
+      count: rows.length,
+      rows,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 /** ========== START SERVER ========== */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
