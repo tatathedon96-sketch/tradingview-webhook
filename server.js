@@ -249,7 +249,7 @@ app.post("/rank", async (req, res) => {
 });
 
 /** ========== TPI SIGNALS ENDPOINT ==========
- * Scores each token with the shared TPI indicator basket on BOTH USD and BTC.
+ * Scores each token with the shared TPI indicator basket on USD, BTC and ETH.
  * Returns +1/0/-1 per indicator plus the averaged score (range -1..+1) per side.
  * Additive to /rank; uses the OHLC fetch in score_basket.js (not the closes chain).
  */
@@ -266,7 +266,8 @@ app.post("/signals", async (req, res) => {
     const rows = [];
     const queue = bases.slice();
 
-    // Worker pool: 158 tokens x 2 instruments (USD+BTC) ~= 316 fetches.
+    // Worker pool. USD needs 3 fetches/token; BTC & ETH reuse a once-fetched
+    // benchmark each (synth from the USD bars), so they add no per-token fetches.
     async function worker() {
       while (queue.length > 0) {
         const base = queue.shift();
@@ -276,12 +277,14 @@ app.post("/signals", async (req, res) => {
             ticker: base,
             usdScore: r.usd.error ? null : r.usd.score,
             btcScore: r.btc.error ? null : r.btc.score,
+            ethScore: r.eth.error ? null : r.eth.score,
             usdSignals: r.usd.error ? null : r.usd.signals.map(s => s.sig),
             btcSignals: r.btc.error ? null : r.btc.signals.map(s => s.sig),
-            error: r.usd.error || r.btc.error || undefined,
+            ethSignals: r.eth.error ? null : r.eth.signals.map(s => s.sig),
+            error: r.usd.error || undefined,
           });
         } catch (e) {
-          rows.push({ ticker: base, usdScore: null, btcScore: null, error: e.message });
+          rows.push({ ticker: base, usdScore: null, btcScore: null, ethScore: null, error: e.message });
         }
       }
     }
