@@ -5,8 +5,8 @@
 // into the sheet's Score column and raises an alarm on everything else.
 //
 // Data:
-//   - ETHBTC / SOLETH / SOLBTC: the real exchange pair (Binance, then OKX/KuCoin);
-//     falls back to a synthetic ratio from USDT pairs if none is listed.
+//   - ETHBTC / SOLETH / SOLBTC: Binance's real pair when reachable; otherwise a
+//     synthetic ratio from USDT pairs (never a thin OKX/KuCoin cross pair).
 //   - HYPE*: KUCOIN:HYPEUSDT (the longest HYPE history) over the major's USDT pair,
 //     the same symbol expression the TradingView charts use.
 //
@@ -132,10 +132,13 @@ async function getBars(spec, cache) {
     const bench = await once(spec.hype, () => fetchDailyPair(spec.hype, 900));
     return { source: `kucoin:HYPEUSDT/${bench.source}:${spec.hype}`, bars: synthTV(hype.bars, bench.bars) };
   }
+  // Only Binance's real pair is trusted (it is what the TradingView charts use).
+  // OKX/KuCoin cross pairs can be thin — OKX SOL-ETH returns bars that score 0
+  // on VWMA indicators — so anywhere else, synthesize from liquid USDT pairs.
   try {
-    const r = await once(spec.pair, () => fetchDailyPair(spec.pair, 900));
-    if (r.bars.length >= 250) return { source: `${r.source}:${spec.pair}`, bars: r.bars };
-  } catch (_) { /* fall through to synthesis */ }
+    const r = await once("binance:" + spec.pair, () => fetchDailyFrom("binance", spec.pair, 900));
+    if (r.bars.length >= 250) return { source: `binance:${spec.pair}`, bars: r.bars };
+  } catch (_) { /* Binance unreachable (e.g. US-hosted) -> synthesize */ }
   const base = spec.pair.slice(0, 3), quote = spec.pair.slice(3);
   const a = await once(base + "USDT", () => fetchDailyPair(base + "USDT", 900));
   const b = await once(quote + "USDT", () => fetchDailyPair(quote + "USDT", 900));
