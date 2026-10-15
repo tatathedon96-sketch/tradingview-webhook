@@ -47,7 +47,7 @@ const IND = {
   // SOLBTC
   emd:     b => RI.emdTrend(b, { srcKey: "close", avgType: "RMA", length: 20, mult: 1.5, neutralOpposite: true }),
   follow:  b => RI.followLine(b, { bbPeriod: 21, bbDev: 2, atrPeriod: 5, useAtr: false, atrMult: 2, pivotLen: 2, part: "pivot" }),
-  dual:    b => RI.dualPhase(b, { lenLow: 60, lenHigh: 31, refit: 40, volPeriod: 17, volSmooth: 20 }),
+  dual:    b => RI.dualPhase(b, { lenLow: 60, lenHigh: 31, refit: 40, volPeriod: 17, volSmooth: 20, part: "agree" }),
   sgRsi:   b => RI.sgMedianRsi(b, { srcKey: "close", rsiPeriod: 7, medianLen: 35, longT: 176, shortT: 160 }),
   // Pine 7 ("Pina 5 Strategy"), per-block inputs; needs 1D + 4H context
   p7EthBtc: (b, x) => RI.pina5(b, 1, x.d1, x.h4, { maType: "HMA", maLen: 11, useSmooth: false, smoothLen: 10, useATR: true, atrLen: 159, atrMult: 0.7, lookback: 29 }),
@@ -84,9 +84,9 @@ const BLOCKS = {
   SOLBTC: { pair: "SOLBTC", rows: [
     ["EMD Trend",                  "emd",      1, "auto"],
     ["ST MA",                      "stMaTma",  1, "auto"],
-    ["Follow Line Trend Signal",   "follow",   2, "check"],   // which of its two lines the user reads is unconfirmed
+    ["Follow Line Trend Signal",   "follow",   2, "auto"],    // user reads the green/red pivot line only (confirmed Oct 15)
     ["Pine 7",                     "p7SolBtc", 1, "auto"],
-    ["Dual-Phase Trend Regime",    "dual",     1, "check"],   // port reads +1, user's chart -1 on Oct 15 — unresolved
+    ["Dual-Phase Trend Regime",    "dual",     1, "auto"],    // user scores 0 when slow and fast oscillators disagree (Oct 15)
     ["Savitzky Golay Median Filtered RSI", "sgRsi", 1, "auto"],
   ]},
   HYPEBTC: { hype: "BTCUSDT", rows: [

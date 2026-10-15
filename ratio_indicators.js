@@ -201,7 +201,10 @@ const median = a => { const s = a.slice().sort((x, y) => x - y), m = s.length >>
 // ── Dual-Phase Trend Regime Oscillator (Zeiierman) ──
 // NOTE: the volatility "refit" runs every `refit` bars counted from the start of the
 // chart's history, so values depend slightly on how much history the source has.
-function dualPhase(bars, { lenLow = 36, lenHigh = 18, refit = 50, volPeriod = 20, volSmooth = 5 } = {}) {
+// part: "regime" = the script's own trend_regime (one oscillator, picked by the
+// volatility state); "agree" = the user's reading — +1/-1 only when the slow AND
+// fast oscillators are on the same side of 0.5, else 0.
+function dualPhase(bars, { lenLow = 36, lenHigh = 18, refit = 50, volPeriod = 20, volSmooth = 5, part = "regime" } = {}) {
   const n = bars.length, close = col(bars, "close");
   const ret = close.map((c, i) => (i > 0 ? c / close[i - 1] - 1 : NA));
   const volRaw = P.stdev(ret, volPeriod);
@@ -230,6 +233,11 @@ function dualPhase(bars, { lenLow = 36, lenHigh = 18, refit = 50, volPeriod = 20
     prevC1 = c1;
     let regime = NA;
     if (fin(volSm[i]) && fin(c1) && fin(c2)) regime = volSm[i] < (c1 + c2) / 2 ? 0 : 1;
+    if (part === "agree") {
+      const lo = oLow[i], hi = oHigh[i];
+      out[i] = fin(lo) && fin(hi) ? (lo > 0.5 && hi > 0.5 ? 1 : lo < 0.5 && hi < 0.5 ? -1 : 0) : 0;
+      continue;
+    }
     const osc = fin(regime) ? (regime === 1 ? oHigh[i] : oLow[i]) : NA;
     out[i] = fin(osc) ? (osc > 0.5 ? 1 : osc < 0.5 ? -1 : 0) : 0;
   }
