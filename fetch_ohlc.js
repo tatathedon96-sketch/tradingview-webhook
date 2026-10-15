@@ -77,6 +77,15 @@ async function fetchDailyPair(pair, limit = 400) {
   throw new Error(`No daily OHLC for ${pair} (${errors.join("; ")})`);
 }
 
+// Fetch a pair from ONE named source (no fallback) — for when the source matters,
+// e.g. KuCoin HYPEUSDT, whose history is far longer than Binance's.
+async function fetchDailyFrom(source, pair, limit = 400) {
+  if (!SOURCES[source]) throw new Error(`unknown source ${source}`);
+  const bars = validBars(await SOURCES[source](pair, limit));
+  if (!bars) throw new Error(`${source}: not enough data for ${pair}`);
+  return { source, bars: bars.slice(-limit) };
+}
+
 // ── Fetch a pair at an arbitrary interval (e.g. "3d", "4h") ──
 // Binance serves 3d/4h natively (UTC-anchored, matching TradingView); OKX fallback.
 async function fetchInterval(pair, interval, limit = 500) {
@@ -144,7 +153,7 @@ function aggregate(bars, n) {
   return out;
 }
 
-module.exports = { fetchDailyPair, fetchInterval, mapHtfToDaily, aggregate };
+module.exports = { fetchDailyPair, fetchDailyFrom, fetchInterval, mapHtfToDaily, aggregate };
 
 // Quick manual probe: `node fetch_ohlc.js ETHBTC`
 if (require.main === module) {

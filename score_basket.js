@@ -37,9 +37,11 @@ function scoreBars(bars1d) {
   return { signals, score };
 }
 
-// Synthesize TOKEN/BENCH ratio bars, aligned by timestamp. High/low use the
-// cross bounds (tokHigh/benchLow, tokLow/benchHigh) — a slight over-estimate of
-// the ratio's true range, fine for trend scoring.
+// Synthesize TOKEN/BENCH ratio bars, aligned by timestamp. Each OHLC component
+// is divided separately, the way TradingView draws a spread chart (high/high,
+// low/low), then high/low are re-bounded. The old cross-bound form (high/low,
+// low/high) inflated the true range, and the ATR-based members (Median ST, EKT
+// with ATR, ST MA) then disagreed with the real pair on 30-60% of days.
 function synthRatio(tok, bench, alignByDay = true) {
   // Match by exact timestamp, falling back to UTC-day bucket so tokens fetched
   // from a different exchange than the benchmark (slightly different bar times)
@@ -50,7 +52,8 @@ function synthRatio(tok, bench, alignByDay = true) {
   for (const t of tok) {
     const b = exact.get(t.t) || (day && day.get(Math.floor(t.t / 86400000)));
     if (!b || !(b.open > 0 && b.close > 0 && b.high > 0 && b.low > 0)) continue;
-    out.push({ t: t.t, open: t.open / b.open, high: t.high / b.low, low: t.low / b.high, close: t.close / b.close, vol: t.vol });
+    const o = t.open / b.open, h = t.high / b.high, l = t.low / b.low, c = t.close / b.close;
+    out.push({ t: t.t, open: o, high: Math.max(o, h, l, c), low: Math.min(o, h, l, c), close: c, vol: t.vol });
   }
   return out;
 }

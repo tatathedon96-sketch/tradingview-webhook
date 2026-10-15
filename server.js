@@ -304,6 +304,21 @@ app.post("/signals", async (req, res) => {
   }
 });
 
+/** ========== RATIO TPI ENDPOINT ==========
+ * Scores the six major-vs-major ratio TPI blocks on the RSPS "2 - Conservative
+ * Trend" tab (ETHBTC, SOLETH, SOLBTC, HYPEBTC, HYPEETH, HYPESOL), each with its
+ * own indicator list and inputs. Read by RATIO_TPI_AUTOFILL in the sheet.
+ */
+const { scoreRatioBlocks } = require("./ratio_tpi");
+
+app.get("/ratio-tpi", async (req, res) => {
+  try {
+    res.json(await scoreRatioBlocks());
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 /** ========== START SERVER ========== */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
