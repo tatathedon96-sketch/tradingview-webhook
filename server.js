@@ -319,6 +319,24 @@ app.get("/ratio-tpi", async (req, res) => {
   }
 });
 
+/** ========== ALT/ALT MATRIX ENDPOINT ==========
+ * Trash tournament tiebreaker: the shared TPI basket on every finalist pair A/B.
+ * Read by TRASH_TOURNAMENT in the sheet.
+ */
+const { altMatrix } = require("./alt_matrix");
+
+app.post("/alt-matrix", async (req, res) => {
+  try {
+    const { tickers } = req.body || {};
+    if (!Array.isArray(tickers) || tickers.length < 2 || tickers.length > 60) {
+      return res.status(400).json({ error: "tickers must be an array of 2-60 symbols" });
+    }
+    res.json(await altMatrix(tickers.map(parseBaseSymbol).filter(Boolean)));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 /** ========== START SERVER ========== */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {

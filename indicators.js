@@ -66,8 +66,9 @@ function ekt(bars, { atrBool = true, atrLen = 9, atrMult = 0.7, maLen = 11, maTy
   const high = bars.map(b => b.high), low = bars.map(b => b.low);
   const vol = bars.map(b => b.vol);
 
+  const lowest = P.lowest(low, maLen); // once, not once per bar (was O(n^2))
   const highLowRange = P.highest(high, maLen).map((h, i) => {
-    const l = P.lowest(low, maLen)[i]; return (P.isNa(h) || P.isNa(l)) ? P.NA : h - l;
+    const l = lowest[i]; return (P.isNa(h) || P.isNa(l)) ? P.NA : h - l;
   });
   const priceBasis = P.ma(maType, src, maLen, vol);
   const channelWidth = atrBool ? P.atr(bars, atrLen) : highLowRange;
