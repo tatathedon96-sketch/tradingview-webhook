@@ -35,7 +35,7 @@ const IND = {
   ektVwma: b => I.ekt(b, { atrBool: true, atrLen: 20, atrMult: 1, maLen: 20, maType: "VWMA", srcKey: "close" }),
   medST:   b => I.medianST(b, { atrPeriod: 100, mul: 1.26, medianLen: 30, srcKey: "close" }),
   wrb40:   b => I.wrb(b, { len: 40, weighting: "Smooth", filterStrength: 0.11 }),
-  wrb27:   b => I.wrb(b, { len: 27, weighting: "Smooth", filterStrength: 0.08 }),
+  wrb27:   b => I.wrb(b, { len: 27, weighting: "Smooth", filterStrength: 0.08, method: "ALMA" }),
   pMotion: b => I.pMotion(b, { emaLen: 20, sdLength: 30, multUp: 1.69, multDn: 1.45, srcKey: "close", demaLen: 3, prcLen: 3 }),
   khRsi:   b => I.kalmanHullRSI(b, { srcKey: "close", measNoise: 3, processNoise: 0.01, rsiPeriod: 12 }),
   rocWma:  b => I.rocWMA(b, { rocLen: 19, maLen: 10, sigLen: 9, srcKey: "close", neutralThr: 0.75, maType: "TEMA" }),
@@ -75,7 +75,7 @@ const BLOCKS = {
   ]},
   SOLETH: { pair: "SOLETH", rows: [
     ["25-75 ST",                   "pctST",    1, "auto"],
-    ["Weighted Regression Bands",  "wrb27",    1, "check"],   // sheet uses the ALMA method; port is Smooth-only
+    ["Weighted Regression Bands",  "wrb27",    1, "auto"],
     ["EKT",                        "ektVwma",  2, "auto"],
     ["Pine 7",                     "p7SolEth", 2, "auto"],
     ["Dema HMA Oscillator",        "demaHma",  1, "auto"],

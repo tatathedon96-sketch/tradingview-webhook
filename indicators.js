@@ -250,6 +250,24 @@ function wrb(bars, { len = 50, weighting = "Smooth", filterStrength = 0.08, meth
     kf = Number.isFinite(kf) ? kf + filterStrength * (s - kf) : s;
     fair[i] = kf; // fairvalue == whlMid (LinReg method is a no-op)
   }
+  // "ALMA" method: fairvalue = ta.alma(whlMid, len, 0.85, 6); na if any window value is na.
+  if (method === "ALMA") {
+    const m = 0.85 * (len - 1), s = len / 6;
+    const w = Array.from({ length: len }, (_, k) => Math.exp(-((k - m) ** 2) / (2 * s * s)));
+    const wSum = w.reduce((a, b) => a + b, 0);
+    const mid = fair.slice();
+    for (let i = 0; i < n; i++) {
+      fair[i] = P.NA;
+      if (i < len - 1) continue;
+      let sum = 0, ok = true;
+      for (let k = 0; k < len; k++) {
+        const v = mid[i - (len - 1) + k];
+        if (!Number.isFinite(v)) { ok = false; break; }
+        sum += v * w[k];
+      }
+      if (ok) fair[i] = sum / wSum;
+    }
+  }
 
   const sig = new Array(n).fill(0);
   let col = 0;
